@@ -1,0 +1,36 @@
+# Environnement virtuel Python
+venv/
+.venv/
+
+# Données métier - NE PAS envoyer sur GitHub
+data/raw/*
+data/processed/*
+
+# Garder les dossiers même s'ils sont vides
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Modèles entraînés
+models/*.joblib
+models/*.pkl
+
+# Résultats générés
+outputs/exports/*
+outputs/figures/*
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VS Code
+.vscode/
+
+# Système
+.DS_Store
+Thumbs.db
+
+# Secrets éventuels
+.env
