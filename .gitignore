@@ -1,6 +1,7 @@
 # Environnement virtuel Python
-venv/
+# Environnement virtuel Pythonenv/
 .venv/
+venv311/
 
 # Données métier - NE PAS envoyer sur GitHub
 data/raw/*
