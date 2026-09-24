@@ -10,6 +10,30 @@ from src.parc_enrichment import (
     analyser_compteurs_incompatibles,
     exporter_analyse_compteurs,
 )
+from src.scoring import (
+    charger_modele,
+    appliquer_approche_hybride,
+)
+from src.modeling import lire_parc
+
+
+# ============================================================
+# MODÈLE DE MACHINE LEARNING (mis en cache)
+# ============================================================
+
+@st.cache_resource(show_spinner=False)
+def obtenir_modele():
+    """Charge une seule fois le modèle entraîné (models/modele_hybride.joblib)."""
+    return charger_modele()
+
+
+@st.cache_data(show_spinner=False)
+def lire_parc_modele(contenu, nom):
+    """Lit le parc ODYSSEE utilisé pour enrichir le modèle (mis en cache)."""
+    from io import BytesIO
+    fichier = BytesIO(contenu)
+    fichier.name = nom
+    return lire_parc(fichier)
 
 
 # ============================================================
@@ -855,7 +879,95 @@ else:
         ).replace(",", " ")
     )
 
-    df_results = appliquer_regles_traitement(df)
+    # --------------------------------------------------------
+    # APPROCHE HYBRIDE : règles métier + modèle + humain
+    # --------------------------------------------------------
+
+    modele = obtenir_modele()
+    parc_modele = None
+    seuil_confiance = 0.60
+
+    if modele is None:
+
+        st.info(
+            "Aucun modèle de Machine Learning entraîné n'a été trouvé "
+            "(models/modele_hybride.joblib). L'analyse utilise les règles "
+            "métier seules. Pour activer le modèle : python src/modeling.py"
+        )
+
+        df_results = appliquer_regles_traitement(df)
+
+    else:
+
+        with st.expander(
+            "Paramètres de l'approche hybride (règles métier + Machine Learning)",
+            expanded=False,
+        ):
+
+            param1, param2 = st.columns(2, gap="large")
+
+            with param1:
+
+                seuil_confiance = st.slider(
+                    "Seuil de confiance du modèle",
+                    min_value=0.30,
+                    max_value=0.95,
+                    value=float(modele.get("seuil_par_defaut", 0.60)),
+                    step=0.05,
+                    help=(
+                        "Une proposition du modèle n'est acceptée que si sa "
+                        "confiance atteint ce seuil. En dessous, le rejet reste "
+                        "confié à l'opérateur."
+                    ),
+                    key="seuil_confiance",
+                )
+
+                st.caption(
+                    f"Modèle : {modele.get('algorithme', 'Forêt aléatoire')} · "
+                    f"entraîné le {modele.get('date_entrainement', '—')} "
+                    f"sur {modele.get('n_exemples', '—')} décisions humaines."
+                )
+
+            with param2:
+
+                uploaded_parc_modele = st.file_uploader(
+                    "Parc compteur ODYSSEE (optionnel, pour enrichir le modèle)",
+                    type=["csv", "xlsx", "xls"],
+                    key="upload_parc_modele",
+                )
+
+                if uploaded_parc_modele is not None:
+
+                    try:
+                        parc_modele = lire_parc_modele(
+                            uploaded_parc_modele.getvalue(),
+                            uploaded_parc_modele.name,
+                        )
+                        st.caption(
+                            f"Parc chargé : {len(parc_modele):,} lignes. "
+                            "Le modèle utilise les variables ACT Métier + ODYSSEE."
+                            .replace(",", " ")
+                        )
+                    except Exception as e:
+                        parc_modele = None
+                        st.warning(
+                            f"Parc non exploitable ({e}). "
+                            "Le modèle utilise les variables ACT Métier seules."
+                        )
+
+                else:
+
+                    st.caption(
+                        "Sans parc, le modèle utilise les variables "
+                        "ACT Métier seules."
+                    )
+
+        df_results = appliquer_approche_hybride(
+            df,
+            parc=parc_modele,
+            modele=modele,
+            seuil=seuil_confiance,
+        )
 
 
     # ========================================================
@@ -878,8 +990,15 @@ else:
         ).sum()
     )
 
+    total_modele = int(
+        (
+            df_results["Mode de décision"]
+            == "Modèle"
+        ).sum()
+    )
+
     taux_couverture = (
-        total_regles / total_rejets * 100
+        (total_regles + total_modele) / total_rejets * 100
         if total_rejets > 0
         else 0
     )
@@ -899,37 +1018,79 @@ Résultats de l'analyse
         unsafe_allow_html=True,
     )
 
-    col1, col2, col3, col4 = st.columns(
-        4,
-        gap="medium",
-    )
+    if modele is None:
 
-    col1.metric(
-        "Rejets analysés",
-        f"{total_rejets:,}".replace(",", " "),
-    )
+        col1, col2, col3, col4 = st.columns(
+            4,
+            gap="medium",
+        )
 
-    col2.metric(
-        "Traitements proposés",
-        f"{total_regles:,}".replace(",", " "),
-    )
+        col1.metric(
+            "Rejets analysés",
+            f"{total_rejets:,}".replace(",", " "),
+        )
 
-    col3.metric(
-        "À analyser humainement",
-        f"{total_humain:,}".replace(",", " "),
-    )
+        col2.metric(
+            "Traitements proposés",
+            f"{total_regles:,}".replace(",", " "),
+        )
 
-    col4.metric(
-        "Couverture par les règles",
-        f"{taux_couverture:.1f} %",
-    )
+        col3.metric(
+            "À analyser humainement",
+            f"{total_humain:,}".replace(",", " "),
+        )
 
-    st.caption(
-        "La couverture correspond à la proportion de rejets "
-        "pour lesquels le prototype dispose actuellement "
-        "d'une règle de traitement. "
-        "Elle ne constitue pas un taux de réussite."
-    )
+        col4.metric(
+            "Couverture par les règles",
+            f"{taux_couverture:.1f} %",
+        )
+
+        st.caption(
+            "La couverture correspond à la proportion de rejets "
+            "pour lesquels le prototype dispose actuellement "
+            "d'une règle de traitement. "
+            "Elle ne constitue pas un taux de réussite."
+        )
+
+    else:
+
+        col1, col2, col3, col4, col5 = st.columns(
+            5,
+            gap="medium",
+        )
+
+        col1.metric(
+            "Rejets analysés",
+            f"{total_rejets:,}".replace(",", " "),
+        )
+
+        col2.metric(
+            "Proposés par règle",
+            f"{total_regles:,}".replace(",", " "),
+        )
+
+        col3.metric(
+            "Proposés par le modèle",
+            f"{total_modele:,}".replace(",", " "),
+        )
+
+        col4.metric(
+            "À analyser humainement",
+            f"{total_humain:,}".replace(",", " "),
+        )
+
+        col5.metric(
+            "Couverture totale",
+            f"{taux_couverture:.1f} %",
+        )
+
+        st.caption(
+            "La couverture correspond à la proportion de rejets pour lesquels "
+            "le prototype propose un traitement (règle métier ou modèle au-dessus "
+            f"du seuil de {seuil_confiance:.0%}). Elle ne constitue pas un taux "
+            "de réussite : les performances du modèle ont été mesurées par "
+            "validation croisée dans le cadre du mémoire."
+        )
 
     cas_regles = df_results[
         df_results["Mode de décision"]
@@ -939,6 +1100,11 @@ Résultats de l'analyse
     cas_humains = df_results[
         df_results["Mode de décision"]
         == "Traitement humain"
+    ].copy()
+
+    cas_modele = df_results[
+        df_results["Mode de décision"]
+        == "Modèle"
     ].copy()
 
 
@@ -972,14 +1138,21 @@ Répartition des cas
             {
                 "Mode de décision": [
                     "Règle métier",
+                    "Modèle",
                     "Analyse humaine",
                 ],
                 "Nombre de cas": [
                     total_regles,
+                    total_modele,
                     total_humain,
                 ],
             }
         )
+
+        if modele is None:
+            repartition_decisions = repartition_decisions[
+                repartition_decisions["Mode de décision"] != "Modèle"
+            ]
 
         donut = (
             alt.Chart(repartition_decisions)
@@ -998,10 +1171,12 @@ Répartition des cas
                     scale=alt.Scale(
                         domain=[
                             "Règle métier",
+                            "Modèle",
                             "Analyse humaine",
                         ],
                         range=[
                             "#78D900",
+                            "#F2A900",
                             "#087DB5",
                         ],
                     ),
@@ -1049,10 +1224,16 @@ Répartition des cas
             use_container_width=True,
         )
 
-        st.caption(
-            "Vert : cas couverts par une règle métier · "
-            "Bleu : cas conservés pour analyse humaine."
-        )
+        if modele is None:
+            st.caption(
+                "Vert : cas couverts par une règle métier · "
+                "Bleu : cas conservés pour analyse humaine."
+            )
+        else:
+            st.caption(
+                "Vert : règle métier · Orange : proposition du modèle "
+                "de Machine Learning · Bleu : analyse humaine."
+            )
 
 
     # ========================================================
@@ -1074,14 +1255,16 @@ Traitements proposés
             unsafe_allow_html=True,
         )
 
-        if cas_regles.empty:
+        cas_proposes = pd.concat([cas_regles, cas_modele])
+
+        if cas_proposes.empty:
 
             st.info(
                 "Aucun traitement n'est actuellement "
                 "proposé par une règle métier."
             )
 
-        else:
+        elif modele is None:
 
             repartition_traitements = (
                 cas_regles["Traitement proposé"]
@@ -1101,6 +1284,29 @@ Traitements proposés
                 "Ces propositions proviennent uniquement "
                 "des règles retenues dans le périmètre "
                 "actuel du PoC."
+            )
+
+        else:
+
+            repartition_traitements = (
+                cas_proposes
+                .groupby(["Traitement proposé", "Mode de décision"])
+                .size()
+                .reset_index(name="Nombre de cas")
+                .rename(columns={"Mode de décision": "Origine"})
+                .sort_values("Nombre de cas", ascending=False)
+            )
+
+            st.dataframe(
+                repartition_traitements,
+                use_container_width=True,
+                hide_index=True,
+                height=245,
+            )
+
+            st.caption(
+                "Origine : règle métier ou modèle de Machine Learning "
+                "(proposition acceptée au-dessus du seuil de confiance)."
             )
 
 
@@ -1212,6 +1418,53 @@ Consulter les résultats
             )
 
 
+    if modele is not None:
+
+        with st.expander(
+            f"Cas proposés par le modèle de Machine Learning ({total_modele})",
+            expanded=False,
+        ):
+
+            if cas_modele.empty:
+
+                st.info(
+                    "Aucune proposition du modèle n'atteint le seuil de confiance."
+                )
+
+            else:
+
+                colonnes = [
+                    "PDS",
+                    "Matricule compteur",
+                    "Matricule émetteur",
+                    "Scénario",
+                    "Résultat",
+                    "Traitement proposé",
+                    "Confiance (%)",
+                    "Justification",
+                ]
+
+                colonnes = [
+                    c
+                    for c in colonnes
+                    if c in cas_modele.columns
+                ]
+
+                st.dataframe(
+                    preparer_affichage(
+                        cas_modele[colonnes]
+                        .sort_values("Confiance (%)", ascending=False)
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=430,
+                )
+
+                st.caption(
+                    "Chaque proposition du modèle reste à valider par l'opérateur."
+                )
+
+
     with st.expander(
         f"Cas nécessitant une analyse humaine ({total_humain})",
         expanded=False,
@@ -1301,6 +1554,8 @@ Consulter les résultats
                 "Scénario",
                 "Résultat",
                 "Traitement proposé",
+                "Suggestion du modèle",
+                "Confiance (%)",
                 "Justification",
             ]
 

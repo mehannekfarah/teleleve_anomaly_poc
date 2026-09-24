@@ -1,5 +1,6 @@
 # Environnement virtuel Python
-# Environnement virtuel Pythonenv/
+
+venv/
 .venv/
 venv311/
 

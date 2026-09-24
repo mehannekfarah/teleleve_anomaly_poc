@@ -1,0 +1,21 @@
+{
+ "n_total": 673,
+ "n_labellises": 488,
+ "n_autre_exclus": 3,
+ "n_evaluation": 485,
+ "n_non_traites": 185,
+ "repartition": {
+  "Vérification terrain (NC)": 348,
+  "Changement émetteur": 39,
+  "Association": 34,
+  "Attente clôture intervention": 19,
+  "Annulation": 15,
+  "Correction données compteur": 12,
+  "IT4US": 11,
+  "Support (SOP)": 7
+ },
+ "n_ambigus": 84,
+ "regles_couverture": 0.8123711340206186,
+ "regles_exactitude": 0.9974619289340102,
+ "pds_trouves_parc": 343
+}

@@ -131,6 +131,11 @@ def creer_synthese(df):
 
     lignes_synthese = []
 
+    avec_modele = (
+        "Mode de décision" in df.columns
+        and (df["Mode de décision"] == "Modèle").any()
+    )
+
     for resultat, groupe in df.groupby(
         "Résultat",
         dropna=False
@@ -152,6 +157,13 @@ def creer_synthese(df):
             ).sum()
         )
 
+        nombre_modele = int(
+            (
+                groupe["Mode de décision"]
+                == "Modèle"
+            ).sum()
+        )
+
         traitements = (
             groupe["Traitement proposé"]
             .dropna()
@@ -170,24 +182,29 @@ def creer_synthese(df):
             )
 
         taux_couverture = (
-            nombre_regle / nombre_total * 100
+            (nombre_regle + nombre_modele) / nombre_total * 100
             if nombre_total > 0
             else 0
         )
 
-        lignes_synthese.append(
-            {
-                "Résultat SITR": resultat,
-                "Nombre de cas": nombre_total,
-                "Traitement proposé": traitement_propose,
-                "Traités par règle métier": nombre_regle,
-                "À analyser humainement": nombre_humain,
-                "Taux de couverture (%)": round(
-                    taux_couverture,
-                    1
-                ),
-            }
+        ligne = {
+            "Résultat SITR": resultat,
+            "Nombre de cas": nombre_total,
+            "Traitement proposé": traitement_propose,
+            "Traités par règle métier": nombre_regle,
+        }
+
+        # Colonne ajoutée uniquement si le modèle de Machine Learning est utilisé
+        if avec_modele:
+            ligne["Proposés par le modèle"] = nombre_modele
+
+        ligne["À analyser humainement"] = nombre_humain
+        ligne["Taux de couverture (%)"] = round(
+            taux_couverture,
+            1
         )
+
+        lignes_synthese.append(ligne)
 
     synthese = pd.DataFrame(
         lignes_synthese
@@ -221,6 +238,10 @@ def dataframe_to_excel(df):
     3. Cas à analyser
        Cas ne disposant pas d'une règle suffisamment
        fiable dans le périmètre actuel du PoC.
+
+    Si le modèle de Machine Learning est utilisé, les colonnes
+    « Confiance (%) » et « Suggestion du modèle » sont conservées
+    et la synthèse compte aussi les propositions du modèle.
     """
 
     output = BytesIO()

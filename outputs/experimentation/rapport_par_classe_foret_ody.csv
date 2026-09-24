@@ -1,0 +1,12 @@
+﻿;precision;recall;f1-score;support
+Annulation;1.0;1.0;1.0;15.0
+Association;0.842;0.941;0.889;34.0
+Attente clôture intervention;0.947;0.947;0.947;19.0
+Changement émetteur;0.973;0.923;0.947;39.0
+Correction données compteur;0.727;0.667;0.696;12.0
+IT4US;1.0;1.0;1.0;11.0
+Support (SOP);1.0;0.571;0.727;7.0
+Vérification terrain (NC);0.994;1.0;0.997;348.0
+accuracy;0.973;0.973;0.973;0.973
+macro avg;0.936;0.881;0.9;485.0
+weighted avg;0.974;0.973;0.972;485.0
